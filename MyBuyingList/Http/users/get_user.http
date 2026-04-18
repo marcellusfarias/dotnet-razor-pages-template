@@ -1,0 +1,9 @@
+
+@userId = 1
+
+@token = eyJhbGciOiJodHRwOi8vd3d3LnczLm9yZy8yMDAxLzA0L3htbGRzaWctbW9yZSNobWFjLXNoYTI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1laWQiOiIxIiwicGVybWlzc2lvbnMiOlsiVXNlckdldCIsIlVzZXJHZXRBbGwiLCJVc2VyRGVsZXRlIiwiVXNlclVwZGF0ZSIsIlVzZXJDcmVhdGUiXSwiZXhwIjoxNzc0NDAyNjAyLCJpc3MiOiJNeUJ1eWluZ0xpc3QiLCJhdWQiOiJNeUJ1eWluZ0xpc3QifQ.DR8p1aWZHGyiSA-LhVrVXDKo9KHeZgHxipvy9OZO2nE
+
+GET https://91.98.166.125:8080/api/users/{{userId}}
+Authorization: Bearer {{token}}
+#GET https://localhost:8080/api/users/{{userId}}
+

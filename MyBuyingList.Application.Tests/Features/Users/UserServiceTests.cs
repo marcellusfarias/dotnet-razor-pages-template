@@ -1,0 +1,266 @@
+using MyBuyingList.Application.Features.Users.Services;
+using MyBuyingList.Application.Features.Users;
+using MyBuyingList.Application.Features.Users.DTOs;
+using MyBuyingList.Application.Common.Models;
+using MyBuyingList.Domain.Entities;
+using MyBuyingList.Application.Common.Interfaces;
+using System.Net.Mail;
+using MyBuyingList.Application.Common.Exceptions;
+
+namespace MyBuyingList.Application.Tests.Features.Users;
+
+public class UserServiceTests
+{
+    private readonly UserService _sut;
+    private readonly IFixture _fixture;
+    private readonly IUserRepository _userRepositoryMock = Substitute.For<IUserRepository>();
+    private readonly IPasswordEncryptionService _passwordEncryptionService = Substitute.For<IPasswordEncryptionService>();
+
+    private const int DefaultPage = 1;
+
+    public UserServiceTests()
+    {
+        _sut = new UserService(_userRepositoryMock, _passwordEncryptionService);
+        _fixture = new Fixture();//.Customize(new AutoNSubstituteCustomization());
+        _fixture.Behaviors.Add(new OmitOnRecursionBehavior());
+
+        _fixture.Customize<User>(c => c
+            .With(x =>
+                x.Email,
+                _fixture.Create<MailAddress>().Address));
+
+        _fixture.Customize<CreateUserRequest>(c => c
+            .With(x =>
+                x.Email,
+                _fixture.Create<MailAddress>().Address));
+    }
+
+    [Fact]
+    public async Task GetAllUsersAsync_ShouldReturnPagedResult_WhenThereAreUsers()
+    {
+        //Arrange
+        User user1 = _fixture.Create<User>();
+        User user2 = _fixture.Create<User>();
+        User user3 = _fixture.Create<User>();
+
+        List<User> mockedUsers = [user1, user2, user3];
+        var pagedUsers = new PagedResult<User>(mockedUsers, DefaultPage, mockedUsers.Count, 1);
+        _userRepositoryMock
+            .GetAllAsync(DefaultPage, CancellationToken.None)
+            .Returns(pagedUsers);
+
+        //Act
+        var result = await _sut.GetAllUsersAsync(DefaultPage, CancellationToken.None);
+
+        //Assert
+        UserDto userDto1 = new UserDto(user1.Id, user1.UserName, user1.Email, user1.Active);
+        UserDto userDto2 = new UserDto(user2.Id, user2.UserName, user2.Email, user2.Active);
+        UserDto userDto3 = new UserDto(user3.Id, user3.UserName, user3.Email, user3.Active);
+
+        result.Data.Should().BeEquivalentTo([userDto1, userDto2, userDto3]);
+        result.Page.Should().Be(DefaultPage);
+        result.TotalCount.Should().Be(mockedUsers.Count);
+        result.TotalPages.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task GetAllUsersAsync_ShouldReturnEmptyData_WhenThereAreNoUsers()
+    {
+        //Arrange
+        var pagedUsers = new PagedResult<User>([], DefaultPage, 0, 0);
+        _userRepositoryMock
+            .GetAllAsync(DefaultPage, CancellationToken.None)
+            .Returns(pagedUsers);
+
+        //Act
+        var result = await _sut.GetAllUsersAsync(DefaultPage, CancellationToken.None);
+
+        //Assert
+        result.Data.Should().BeEmpty();
+        result.TotalCount.Should().Be(0);
+        result.TotalPages.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task GetUserAsync_ShouldReturnUser_WhenIdExists()
+    {
+        //Arrange
+        var user = _fixture.Create<User>();
+        int searchingUserId = user.Id;
+
+        _userRepositoryMock
+            .GetAsync(searchingUserId, CancellationToken.None)
+            .Returns(user);
+
+        //Act
+        var returnUser = await _sut.GetUserAsync(searchingUserId, CancellationToken.None);
+
+        //Assert
+        UserDto userDto2 = new UserDto(searchingUserId, user.UserName, user.Email, user.Active);
+
+        returnUser.Should().BeEquivalentTo(userDto2);
+    }
+
+    [Fact]
+    public async Task GetUserAsync_ShouldThrowResourceNotFoundException_WhenIdDoesNotExists()
+    {
+        //Arrange
+        int randomId = _fixture.Create<int>();
+
+        _userRepositoryMock
+            .GetAsync(randomId, CancellationToken.None)
+            .ReturnsNull();
+
+        //Act
+        var act = async () => await _sut.GetUserAsync(randomId, CancellationToken.None);
+
+        //Assert
+        await act.Should().ThrowAsync<ResourceNotFoundException>();
+    }
+
+    [Fact]
+    public async Task CreateAsync_ShouldReturnId_WhenDtoIsValid()
+    {
+        // Arrange
+        var randomId = _fixture.Create<int>();
+        var createUser = _fixture.Create<CreateUserRequest>();
+        _userRepositoryMock
+            .AddAsync(Arg.Any<User>(), CancellationToken.None)
+            .Returns(randomId);
+
+        // Act
+        var createdId = await _sut.CreateAsync(createUser, CancellationToken.None);
+
+        // Assert
+#pragma warning disable 4014 //for .Received await is not required, so suppress warning �Consider applying the 'await' operator�
+        _userRepositoryMock.Received(1).AddAsync(Arg.Any<User>(), CancellationToken.None);
+#pragma warning restore 4014
+
+        createdId.Should().Be(randomId);
+
+    }
+
+    [Fact]
+    public async Task ChangeUserPasswordAsync_ShouldReturnVoid_WhenSucceded()
+    {
+        //Arrange
+        var user = _fixture.Create<User>();
+        int userId = user.Id;
+        string oldPassoword = "12345678";
+        string newPassword = _fixture.Create<string>();
+
+        _userRepositoryMock
+            .GetAsync(userId, CancellationToken.None)
+            .Returns(user);
+
+        _passwordEncryptionService
+            .VerifyPassword(oldPassoword, user.Password)
+            .Returns(true);
+
+        //Act
+        await _sut.ChangeUserPasswordAsync(userId, oldPassoword, newPassword, CancellationToken.None);
+
+        //Assert
+#pragma warning disable 4014 //for .Received await is not required, so suppress warning �Consider applying the 'await' operator�
+        _userRepositoryMock.Received(1).EditAsync(Arg.Any<User>(), CancellationToken.None);
+#pragma warning restore 4014
+    }
+
+    [Fact]
+    public async Task ChangeUserPasswordAsync_ShouldThrowBusinessLogicException_WhenPasswordsDontMatch()
+    {
+        //Arrange
+        var user = _fixture.Create<User>();
+        int userId = user.Id;
+        string oldPassoword = "12345678";
+        string newPassword = _fixture.Create<string>();
+
+        _userRepositoryMock
+            .GetAsync(userId, CancellationToken.None)
+            .Returns(user);
+
+        _passwordEncryptionService
+            .VerifyPassword(oldPassoword, user.Password)
+            .Returns(false);
+
+        //Act
+        var act = async () => await _sut.ChangeUserPasswordAsync(userId, oldPassoword, newPassword, CancellationToken.None);
+
+        //Assert
+        await act.Should().ThrowAsync<BusinessLogicException>();
+    }
+
+    [Fact]
+    public async Task ChangeUserPasswordAsync_ShouldThrowResourceNotFoundException_WhenUserDoesNotExist()
+    {
+        //Arrange
+        var user = _fixture.Create<User>();
+        int userId = user.Id;
+
+        _userRepositoryMock
+            .GetAsync(userId, CancellationToken.None)
+            .ReturnsNull();
+
+        //Act
+        var act = async () => await _sut.ChangeUserPasswordAsync(userId, "", "", CancellationToken.None);
+
+        //Assert
+        await act.Should().ThrowAsync<ResourceNotFoundException>();
+    }
+
+    [Fact]
+    public async Task DeleteAsync_ShouldReturnVoid_WhenSucceded()
+    {
+        //Arrange
+        var user = _fixture.Create<User>();
+        int userId = user.Id;
+
+        _userRepositoryMock
+            .GetAsync(userId, CancellationToken.None)
+            .Returns(user);
+
+        //Act
+        await _sut.DeleteAsync(userId, CancellationToken.None);
+
+        //Assert
+#pragma warning disable 4014 //for .Received await is not required, so suppress warning �Consider applying the 'await' operator�
+        _userRepositoryMock.Received(1).DeactivateAsync(Arg.Any<User>(), CancellationToken.None);
+#pragma warning restore 4014
+    }
+
+    [Fact]
+    public async Task DeleteAsync_ShouldThrowResourceNotFoundException_WhenUserDoesNotExist()
+    {
+        //Arrange
+        int userId = _fixture.Create<int>();
+
+        _userRepositoryMock
+            .GetAsync(userId, CancellationToken.None)
+            .ReturnsNull();
+
+        //Act
+        var act = async () => await _sut.DeleteAsync(userId, CancellationToken.None);
+
+        //Assert
+        await act.Should().ThrowAsync<ResourceNotFoundException>();
+    }
+
+    [Fact]
+    public async Task DeleteAsync_ShouldThrowBusinessLogicException_WhenUserIsAdmin()
+    {
+        //Arrange
+        var user = _fixture.Create<User>();
+        int userId = user.Id;
+        user.UserName = "admin";
+
+        _userRepositoryMock
+            .GetAsync(userId, CancellationToken.None)
+            .Returns(user);
+
+        //Act
+        var act = async () => await _sut.DeleteAsync(userId, CancellationToken.None);
+
+        //Assert
+        await act.Should().ThrowAsync<BusinessLogicException>();
+    }
+}

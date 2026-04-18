@@ -1,0 +1,17 @@
+POST https://91.98.166.125:8080/api/auth
+#POST https://localhost:8080/api/Auth
+Content-Type: application/json
+
+{
+  "Username": "admin",
+  "Password": "Admin123\\!"
+}
+
+###
+POST https://91.98.166.125:8080/api/auth/refresh
+#POST https://localhost:8080/api/auth/refresh
+Content-Type: application/json
+
+{
+  "refreshToken": "Mqo+uyZZTc2aXSgCqgAF08jZW539H68vkLY4lANnhtg="
+}
