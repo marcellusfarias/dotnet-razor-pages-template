@@ -1,0 +1,148 @@
+﻿using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using MyBuyingList.Application.Common.Interfaces;
+using MyBuyingList.Application.Features.Login.DTOs;
+using System.Net.Http.Json;
+using MyBuyingList.Domain.Entities;
+using MyBuyingList.Infrastructure;
+using MyBuyingList.Web.Tests.IntegrationTests.Common.Logging;
+using System.Net.Http.Headers;
+using MyBuyingList.Infrastructure.Persistence.Seeders;
+using Testcontainers.PostgreSql;
+
+namespace MyBuyingList.Web.Tests.IntegrationTests.Common;
+
+// Video I got inspired by: https://www.youtube.com/watch?v=E4TeWBFzcCw
+public class ResourceFactory : WebApplicationFactory<AssemblyMarker>, IAsyncLifetime
+{
+    private readonly PostgreSqlContainer _dbContainer;
+    private readonly int _exposedPort = new Random().Next(1000, 10000);
+
+    public IConfiguration Configuration { get; private set; } = null!;
+    public HttpClient HttpClient { get; private set; } = null!;
+    public FakeLogCollector LogCollector { get; } = new FakeLogCollector();
+
+    public ResourceFactory()
+    {
+        _dbContainer = new PostgreSqlBuilder()
+            .WithImage("postgres:14")
+            .WithUsername("myuser")
+            .WithPassword("password")
+            .WithDatabase("db")
+            .WithHostname("localhost")
+            .WithPortBinding(_exposedPort, 5432)  
+            .Build();
+    }
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseEnvironment("Test");
+        
+        var manager = new ConfigurationManager();
+        manager
+            .AddJsonFile(Path.Combine(Directory.GetCurrentDirectory(), "appsettings.IntegrationTests.json"), optional: false)
+            .Build();
+
+        builder.UseConfiguration(manager);
+        Configuration = manager;
+
+        builder.ConfigureLogging(logging => logging.AddProvider(new FakeLoggerProvider(LogCollector)));
+
+        builder.ConfigureTestServices(services =>
+        {
+            // Replace with proper DbContext
+            var descriptor = services.Single(d => d.ServiceType == typeof(DbContextOptions<ApplicationDbContext>));
+            services.Remove(descriptor);
+
+            services.AddDbContext<ApplicationDbContext>(options =>
+            {
+                options
+                    .UseNpgsql(_dbContainer.GetConnectionString())
+                    .UseSnakeCaseNamingConvention();
+            });
+            services.AddScoped<ApplicationDbContext>();
+        });
+
+    }
+
+    public async ValueTask InitializeAsync()
+    {
+        await _dbContainer.StartAsync();
+        
+        // Seeds the database with an admin user, since this function is ran before 
+        // BaseIntegrationTests.InitializeAsync()
+        await SeedAdminAsync();
+        await SeedIntegrationAdminAsync();
+        
+        // Creates client and adds JWT so it doesnt need to authenticate
+        // on every test.
+        var client = CreateClient();
+
+        LoginRequest loginDto = new()
+        {
+            Username = Utils.IntegrationTestAdminUsername,
+            Password = Utils.IntegrationTestAdminPassword
+        };
+
+        var response = await client.PostAsync("api/auth", Utils.GetJsonContentFromObject(loginDto));
+        var loginResponse = await response.Content.ReadFromJsonAsync<LoginResponse>();
+
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", loginResponse!.AccessToken);
+
+        HttpClient = client;
+    }
+
+    public new async Task DisposeAsync()
+    {
+        await _dbContainer.StopAsync();
+    }
+
+    public async Task ResetDatabaseAsync()
+    {
+        using var scope = Services.CreateScope();
+        var dbService = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        await dbService.Database.EnsureDeletedAsync();
+        await dbService.Database.EnsureCreatedAsync();
+
+        await SeedAdminAsync();
+        await SeedIntegrationAdminAsync();
+    }
+
+    private async Task SeedAdminAsync()
+    {
+        using var scope = Services.CreateScope();
+        var seeder = scope.ServiceProvider.GetRequiredService<AdminUserSeeder>();
+        await seeder.SeedAsync();
+    }
+    
+    private async Task SeedIntegrationAdminAsync()
+    {
+        using var scope = Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        var passwordService = scope.ServiceProvider.GetRequiredService<IPasswordEncryptionService>();
+
+        var user = new User
+        {
+            UserName = Utils.IntegrationTestAdminUsername,
+            Email = "integration_admin@test.local",
+            Password = passwordService.HashPassword(Utils.IntegrationTestAdminPassword),
+            Active = true
+        };
+
+        db.Set<User>().Add(user);
+        await db.SaveChangesAsync();
+
+        // Assign Administrator role (Id = 1) to the newly created user
+        var insertedUser = await db.Set<User>()
+            .SingleAsync(u => u.UserName == Utils.IntegrationTestAdminUsername);
+
+        db.Set<UserRole>().Add(new UserRole { UserId = insertedUser.Id, RoleId = 1 });
+        await db.SaveChangesAsync();
+    }
+}

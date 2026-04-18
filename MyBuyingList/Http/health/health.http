@@ -1,0 +1,3 @@
+#GET https://localhost:8080/health
+GET https://91.98.166.125:8080/health
+
