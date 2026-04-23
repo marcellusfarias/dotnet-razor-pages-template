@@ -16,6 +16,7 @@ public class AuthenticationRateLimiterPolicy : IRateLimiterPolicy<IPAddress>
         OnRejected = (ctx, token) =>
         {
             ctx.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+            ctx.HttpContext.Response.Redirect("/login");
             logger.LogWarning("Request rejected by {PolicyName}", nameof(AuthenticationRateLimiterPolicy));
             return ValueTask.CompletedTask;
         };
@@ -26,9 +27,8 @@ public class AuthenticationRateLimiterPolicy : IRateLimiterPolicy<IPAddress>
 
     public RateLimitPartition<IPAddress> GetPartition(HttpContext httpContext)
     {
-        // can't be null since it's TCP by default.
-        // check: https://learn.microsoft.com/en-us/dotnet/api/microsoft.aspnetcore.http.connectioninfo.remoteipaddress?view=aspnetcore-7.0
-        IPAddress ipAddress = httpContext.Connection.RemoteIpAddress!; 
+        // RemoteIpAddress is null in TestServer (no real TCP connection)
+        IPAddress ipAddress = httpContext.Connection.RemoteIpAddress!;
 
         return RateLimitPartition.GetFixedWindowLimiter(ipAddress,
             _ => new FixedWindowRateLimiterOptions

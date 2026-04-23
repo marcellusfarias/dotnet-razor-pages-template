@@ -3,7 +3,6 @@ using Microsoft.Extensions.Options;
 using MyBuyingList.Application.Common.Interfaces;
 using MyBuyingList.Domain.Constants;
 using MyBuyingList.Domain.Entities;
-using MyBuyingList.Infrastructure.Authentication.JwtSetup;
 
 namespace MyBuyingList.Infrastructure.Persistence.Seeders;
 

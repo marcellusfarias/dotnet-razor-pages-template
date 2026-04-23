@@ -1,15 +1,17 @@
-﻿using Microsoft.OpenApi.Models;
-using MyBuyingList.Web.Filters;
-using MyBuyingList.Application;
-using System.Net;
+﻿using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
+using MyBuyingList.Application;
 using MyBuyingList.Application.Common.Interfaces;
-using MyBuyingList.Web.Middlewares.Authorization;
-using MyBuyingList.Web.Middlewares.CorrelationId;
-using MyBuyingList.Web.Services;
-using MyBuyingList.Web.Middlewares.RateLimiting;
 using MyBuyingList.Application.Common.Options;
 using MyBuyingList.Infrastructure;
+using MyBuyingList.Web.Configuration;
+using MyBuyingList.Web.Middlewares.Authorization;
+using MyBuyingList.Web.Middlewares.CorrelationId;
+using MyBuyingList.Web.Middlewares.Filters;
+using MyBuyingList.Web.Middlewares.RateLimiting;
+using MyBuyingList.Web.Services;
+using System.Net;
 
 namespace MyBuyingList.Web;
 
@@ -18,59 +20,43 @@ internal static class ConfigureServices
     internal static void AddServices(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddExternalServices(configuration);
-
         services.AddRateLimitService(configuration);
+        services.AddAuthenticationServices(configuration);
         services.AddAuthorizationServices();
-        services.AddSwaggerConfiguration();
-        services.AddHealthChecks()
-            .AddDbContextCheck<ApplicationDbContext>();
+        services.AddDataProtectionService(configuration);
+        services.AddHealthChecks().AddDbContextCheck<ApplicationDbContext>();
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUserService, CurrentUserService>();
         services.AddScoped<CorrelationIdProvider>();
         services.AddScoped<ICorrelationIdProvider>(sp => sp.GetRequiredService<CorrelationIdProvider>());
-        services.AddControllers(options => options.Filters.Add(typeof(RequestBodyValidationFilter)));
+        services.AddRazorPages()
+            .AddMvcOptions(options => options.Filters.Add<BasePageFilter>());
         services.Configure<RouteOptions>(options => options.LowercaseUrls = true);
-        services.AddOptions<RefreshTokenOptions>()
-            .BindConfiguration(RefreshTokenOptions.SectionName)
-            .ValidateDataAnnotations()
-            .ValidateOnStart();
+        services.Configure<LockoutOptions>(configuration.GetSection(LockoutOptions.SectionName));
     }
 
-    private static void AddSwaggerConfiguration(this IServiceCollection services)
+    private static void AddAuthenticationServices(this IServiceCollection services, IConfiguration configuration)
     {
-        services.AddSwaggerGen(c =>
-        {
-            c.SwaggerDoc("v1", new OpenApiInfo
-            {
-                Title = "MyBuyingList API",
-                Version = "v1",
-            });
+        services.AddOptions<CookieAuthOptions>()
+            .BindConfiguration(CookieAuthOptions.SectionName)
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
 
-            c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
-            {
-                Name = "Authorization",
-                Type = SecuritySchemeType.ApiKey,
-                Scheme = "Bearer",
-                BearerFormat = "JWT",
-                In = ParameterLocation.Header,
-                Description = "Enter JWT token with Bearer format: Bearer {token}"
-            });
+        CookieAuthOptions cookieOptions = configuration
+            .GetSection(CookieAuthOptions.SectionName)
+            .Get<CookieAuthOptions>() ?? new CookieAuthOptions();
 
-            c.AddSecurityRequirement(new OpenApiSecurityRequirement
-                {
-                    {
-                        new OpenApiSecurityScheme
-                        {
-                            Reference = new OpenApiReference
-                            {
-                                Type=ReferenceType.SecurityScheme,
-                                Id="Bearer"
-                            }
-                        },
-                        []
-                    }
-                });
-        });
+        services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+            .AddCookie(options =>
+            {
+                options.LoginPath = "/login";
+                options.AccessDeniedPath = "/access-denied";
+                options.Cookie.HttpOnly = true;
+                options.Cookie.SameSite = SameSiteMode.Strict;
+                options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+                options.SlidingExpiration = cookieOptions.SlidingExpiration;
+                options.ExpireTimeSpan = TimeSpan.FromMinutes(cookieOptions.ExpirationMinutes);
+            });
     }
 
     private static void AddAuthorizationServices(this IServiceCollection services)
@@ -79,16 +65,22 @@ internal static class ConfigureServices
         services.AddSingleton<IAuthorizationPolicyProvider, PermissionAuthorizationPolicyProvider>();
     }
 
+    private static void AddDataProtectionService(this IServiceCollection services, IConfiguration configuration)
+    {
+        string keysPath = configuration["DataProtection:KeysPath"]
+            ?? throw new InvalidOperationException("DataProtection:KeysPath not found in configuration.");
+
+        services.AddDataProtection()
+            .PersistKeysToFileSystem(new DirectoryInfo(keysPath));
+    }
+
     private static void AddRateLimitService(this IServiceCollection services, IConfiguration configuration)
     {
-        // Rate limiter added just for the authentication endpoint
         services.Configure<CustomRateLimiterOptions>(configuration.GetSection("CustomRateLimiterOptions"));
         services.AddRateLimiter(options =>
         {
             options.AddPolicy<IPAddress, AuthenticationRateLimiterPolicy>(AuthenticationRateLimiterPolicy.PolicyName);
         });
-        
-        services.Configure<LockoutOptions>(configuration.GetSection(LockoutOptions.SectionName));
     }
 
     private static void AddExternalServices(this IServiceCollection services, IConfiguration configuration)

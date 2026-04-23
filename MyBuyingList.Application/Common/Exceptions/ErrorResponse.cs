@@ -1,6 +1,4 @@
-﻿using FluentValidation.Results;
-
-namespace MyBuyingList.Application.Common.Exceptions;
+﻿namespace MyBuyingList.Application.Common.Exceptions;
 
 public class ErrorResponse
 {
@@ -8,7 +6,7 @@ public class ErrorResponse
 
     public static ErrorResponse CreateSingleErrorDetail(string title, string detail)
     {
-        var item = new ErrorDetail
+        ErrorDetail item = new()
         {
             Title = title,
             Detail = detail,
@@ -18,23 +16,6 @@ public class ErrorResponse
         {
             Errors = [item]
         };
-    }
-
-    public static ErrorResponse CreateFromValidationResult(ValidationResult validationResult)
-    {
-        var errorDetails = new List<ErrorDetail>();
-
-        validationResult
-           .Errors
-           .ForEach(x =>
-               errorDetails.Add(
-                   new ErrorDetail()
-                   {
-                       Title = $"Error validating property '{x.PropertyName}'.",
-                       Detail = x.ErrorMessage
-                   }));
-
-        return new ErrorResponse { Errors = errorDetails };
     }
 }
 

@@ -1,50 +1,37 @@
-﻿using MyBuyingList.Application.Features.Login.DTOs;
-using MyBuyingList.Application.Features.Users.DTOs;
-using System.Net;
-using System.Net.Http.Json;
-using System.Text;
-using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace MyBuyingList.Web.Tests.IntegrationTests.Common;
 
 public static class Utils
 {
-    private const string TestUserEmail = "newemail@gmail.com";
+    public const string TestUserEmail = "test_user@test.local";
     public const string TestUserPassword = "Mx485!@zz";
     public const string TestUserUsername = "test_user";
 
     public const string IntegrationTestAdminUsername = "integration_admin";
     public const string IntegrationTestAdminPassword = "IntAdmin!Test1";
 
-    public static async Task<int> InsertTestUser(HttpClient client)
+    public static async Task LoginAsync(HttpClient client, string username, string password)
     {
-        var newUser = new CreateUserRequest(TestUserUsername, TestUserEmail, TestUserPassword);
-                
-        var response = await client.PostAsync(
-            requestUri: Constants.BaseAddressUserEndpoint, 
-            content: GetJsonContentFromObject(newUser)
-        );
+        string html = await (await client.GetAsync(Constants.AddressLoginPage)).Content.ReadAsStringAsync();
+        string antiForgeryToken = ExtractAntiForgeryToken(html);
 
-        if (response.StatusCode != HttpStatusCode.Created)
+        Dictionary<string, string> formData = new()
         {
-            throw new Exception("Could not create test user.");
-        }
+            ["Input.Username"] = username,
+            ["Input.Password"] = password,
+            ["__RequestVerificationToken"] = antiForgeryToken
+        };
 
-        var content = await response.Content.ReadFromJsonAsync<int>();
-        return content;
+        await client.PostAsync(Constants.AddressLoginPage, new FormUrlEncodedContent(formData));
     }
 
-    public static async Task<LoginResponse> LoginAsync(HttpClient client)
+    public static string ExtractAntiForgeryToken(string html)
     {
-        var loginDto = new LoginRequest { Username = TestUserUsername, Password = TestUserPassword };
-        var response = await client.PostAsync(Constants.AddressAuthenticationEndpoint, GetJsonContentFromObject(loginDto));
-        var loginResponse = await response.Content.ReadFromJsonAsync<LoginResponse>();
-        return loginResponse!;
-    }
+        Match match = Regex.Match(html, @"name=""__RequestVerificationToken""[^>]+value=""([^""]+)""");
+        if (!match.Success)
+            match = Regex.Match(html, @"value=""([^""]+)""[^>]+name=""__RequestVerificationToken""");
 
-    public static StringContent GetJsonContentFromObject(object content)
-    {
-        var jsonBody = JsonSerializer.Serialize(content);
-        return new StringContent(jsonBody, Encoding.UTF8, "application/json");
+        return match.Success ? match.Groups[1].Value : string.Empty;
     }
 }

@@ -5,11 +5,11 @@ using MyBuyingList.Application.Features.Login.DTOs;
 using MyBuyingList.Application.Features.Login.Services;
 using MyBuyingList.Application.Features.Users;
 using MyBuyingList.Application.Features.Users.DTOs;
+using MyBuyingList.Domain.Constants;
 using MyBuyingList.Domain.Entities;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Net.Mail;
-using MyBuyingList.Application.Common.Services;
 
 namespace MyBuyingList.Application.Tests.Features.Login;
 
@@ -18,28 +18,19 @@ public class AuthServiceTests
     private readonly AuthService _sut;
     private readonly IFixture _fixture;
     private readonly IUserRepository _userRepositoryMock = Substitute.For<IUserRepository>();
-    private readonly IJwtProvider _jwtProviderMock = Substitute.For<IJwtProvider>();
-    private static readonly PasswordEncryptionService EncryptionService = new();
     
     private readonly IPasswordEncryptionService _passwordEncryptionService =
         Substitute.For<IPasswordEncryptionService>();
 
-    private readonly IRefreshTokenRepository _refreshTokenRepositoryMock = Substitute.For<IRefreshTokenRepository>();
     private readonly ILogger<AuthService> _loggerMock = Substitute.For<ILogger<AuthService>>();
     private readonly LockoutOptions _lockoutOptions = new() { MaxFailedAttempts = 5, LockoutDurationMinutes = 15 };
-
-    private readonly RefreshTokenOptions _refreshTokenOptions =
-        new() { ExpirationDays = 7, RevokedTokenRetentionDays = 30 };
 
     public AuthServiceTests()
     {
         _sut = new AuthService(
             _userRepositoryMock,
-            _jwtProviderMock,
             _passwordEncryptionService,
-            _refreshTokenRepositoryMock,
             Options.Create(_lockoutOptions),
-            Options.Create(_refreshTokenOptions),
             _loggerMock);
 
         _fixture = new Fixture();
@@ -67,6 +58,7 @@ public class AuthServiceTests
             .With(u => u.FailedLoginAttempts, 0)
             .Create();
         user.UserName = user.UserName.ToLower();
+        user.Id = _fixture.Create<int>();
 
         var attemptingPassword = _fixture.Create<string>();
 
@@ -84,18 +76,21 @@ public class AuthServiceTests
             .VerifyPassword(attemptingPassword, user.Password)
             .Returns(true);
 
-        _jwtProviderMock
-            .GenerateTokenAsync(user.Id, CancellationToken.None)
-            .Returns(("custom_token", DateTimeOffset.UtcNow.AddSeconds(60)));
+        _userRepositoryMock
+            .GetUserPoliciesAsync(user.Id, CancellationToken.None)
+            .Returns([]);
+
+        _userRepositoryMock
+            .GetUserRoleNamesAsync(user.Id, CancellationToken.None)
+            .Returns([]);
 
         //Act
         var result = await _sut.AuthenticateAsync(dto, CancellationToken.None);
 
         //Assert
-        result.AccessToken.Should().Be("custom_token");
-        result.RefreshToken.Should().NotBeNullOrEmpty();
-        result.AccessTokenExpiresAt.Should().BeAfter(DateTimeOffset.UtcNow);
-        result.RefreshTokenExpiresAt.Should().BeAfter(DateTimeOffset.UtcNow);
+        result.UserId.Should().Be(user.Id);
+        result.UserName.Should().Be(user.UserName);
+        
     }
 
     [Fact]
@@ -149,41 +144,7 @@ public class AuthServiceTests
         await act.Should().ThrowAsync<AuthenticationException>()
             .WithMessage($"An error occurred when authenticating user {user.UserName.ToLower()}.");
     }
-
-    [Fact]
-    public async Task Authenticate_ShouldThrowException_WhenFailsToGenerateJwtToken()
-    {
-        //Arrange
-        var user = _fixture.Build<User>()
-            .With(u => u.LockoutEnd, (DateTime?)null)
-            .With(u => u.FailedLoginAttempts, 0)
-            .Create();
-        user.UserName = user.UserName.ToLower();
-
-        var dto = new LoginRequest
-        {
-            Password = _fixture.Create<string>(),
-            Username = user.UserName
-        };
-
-        _userRepositoryMock
-            .GetActiveUserByUsernameAsync(user.UserName, CancellationToken.None)
-            .Returns(user);
-
-        _passwordEncryptionService
-            .VerifyPassword(dto.Password, user.Password)
-            .Returns(true);
-
-        _jwtProviderMock
-            .GenerateTokenAsync(user.Id, CancellationToken.None)
-            .Throws(new DatabaseException(new Exception()));
-
-        //Act
-        var act = async () => await _sut.AuthenticateAsync(dto, CancellationToken.None);
-
-        //Assert
-        await act.Should().ThrowAsync<DatabaseException>();
-    }
+    
 
     [Fact]
     public async Task Authenticate_ShouldThrowAccountLockedException_WhenAccountIsLocked()
@@ -361,20 +322,56 @@ public class AuthServiceTests
             .VerifyPassword(dto.Password, user.Password)
             .Returns(true);
 
-        _jwtProviderMock
-            .GenerateTokenAsync(user.Id, CancellationToken.None)
-            .Returns(("custom_token", DateTimeOffset.UtcNow.AddSeconds(60)));
+        _userRepositoryMock
+            .GetUserRoleNamesAsync(user.Id, CancellationToken.None)
+            .Returns([]);
 
         //Act
         var result = await _sut.AuthenticateAsync(dto, CancellationToken.None);
 
         //Assert
-        result.AccessToken.Should().Be("custom_token");
         await _userRepositoryMock.Received(1).ResetLockoutAsync(user.Id, CancellationToken.None);
     }
 
     [Fact]
-    public async Task Authenticate_ShouldPersistRefreshToken_WhenAuthenticationSucceeds()
+    public async Task Authenticate_ShouldReturnMappedPermissions_WhenUserHasPolicies()
+    {
+        //Arrange
+        var user = _fixture.Build<User>()
+            .With(u => u.LockoutEnd, (DateTime?)null)
+            .With(u => u.FailedLoginAttempts, 0)
+            .Create();
+        user.UserName = user.UserName.ToLower();
+
+        var dto = new LoginRequest { Username = user.UserName, Password = _fixture.Create<string>() };
+
+        var policies = _fixture.CreateMany<Policy>(3).ToList();
+
+        _userRepositoryMock
+            .GetActiveUserByUsernameAsync(user.UserName, CancellationToken.None)
+            .Returns(user);
+
+        _passwordEncryptionService
+            .VerifyPassword(dto.Password, user.Password)
+            .Returns(true);
+
+        _userRepositoryMock
+            .GetUserPoliciesAsync(user.Id, CancellationToken.None)
+            .Returns(policies);
+
+        _userRepositoryMock
+            .GetUserRoleNamesAsync(user.Id, CancellationToken.None)
+            .Returns([]);
+
+        //Act
+        AuthenticateResult result = await _sut.AuthenticateAsync(dto, CancellationToken.None);
+
+        //Assert
+        result.Permissions.Should().BeEquivalentTo(policies.Select(p => p.Name));
+    }
+
+    [Fact]
+    public async Task Authenticate_ShouldReturnEmptyPermissions_WhenUserHasNoPolicies()
     {
         //Arrange
         var user = _fixture.Build<User>()
@@ -393,162 +390,91 @@ public class AuthServiceTests
             .VerifyPassword(dto.Password, user.Password)
             .Returns(true);
 
-        _jwtProviderMock
-            .GenerateTokenAsync(user.Id, CancellationToken.None)
-            .Returns(("custom_token", DateTimeOffset.UtcNow.AddSeconds(60)));
+        _userRepositoryMock
+            .GetUserPoliciesAsync(user.Id, CancellationToken.None)
+            .Returns((List<Policy>?)null);
+
+        _userRepositoryMock
+            .GetUserRoleNamesAsync(user.Id, CancellationToken.None)
+            .Returns([]);
 
         //Act
-        await _sut.AuthenticateAsync(dto, CancellationToken.None);
+        AuthenticateResult result = await _sut.AuthenticateAsync(dto, CancellationToken.None);
 
         //Assert
-        await _refreshTokenRepositoryMock.Received(1).AddAsync(
-            Arg.Is<RefreshToken>(t => t.UserId == user.Id && !t.IsRevoked),
-            CancellationToken.None);
+        result.Permissions.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Authenticate_ShouldSetIsAdminTrue_WhenUserHasAdministratorRole()
+    {
+        //Arrange
+        var user = _fixture.Build<User>()
+            .With(u => u.LockoutEnd, (DateTime?)null)
+            .With(u => u.FailedLoginAttempts, 0)
+            .Create();
+        user.UserName = user.UserName.ToLower();
+
+        var dto = new LoginRequest { Username = user.UserName, Password = _fixture.Create<string>() };
+
+        _userRepositoryMock
+            .GetActiveUserByUsernameAsync(user.UserName, CancellationToken.None)
+            .Returns(user);
+
+        _passwordEncryptionService
+            .VerifyPassword(dto.Password, user.Password)
+            .Returns(true);
+
+        _userRepositoryMock
+            .GetUserPoliciesAsync(user.Id, CancellationToken.None)
+            .Returns([]);
+
+        _userRepositoryMock
+            .GetUserRoleNamesAsync(user.Id, CancellationToken.None)
+            .Returns([Roles.Administrator]);
+
+        //Act
+        AuthenticateResult result = await _sut.AuthenticateAsync(dto, CancellationToken.None);
+
+        //Assert
+        result.IsAdmin.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Authenticate_ShouldSetIsAdminFalse_WhenUserLacksAdministratorRole()
+    {
+        //Arrange
+        var user = _fixture.Build<User>()
+            .With(u => u.LockoutEnd, (DateTime?)null)
+            .With(u => u.FailedLoginAttempts, 0)
+            .Create();
+        user.UserName = user.UserName.ToLower();
+
+        var dto = new LoginRequest { Username = user.UserName, Password = _fixture.Create<string>() };
+
+        _userRepositoryMock
+            .GetActiveUserByUsernameAsync(user.UserName, CancellationToken.None)
+            .Returns(user);
+
+        _passwordEncryptionService
+            .VerifyPassword(dto.Password, user.Password)
+            .Returns(true);
+
+        _userRepositoryMock
+            .GetUserPoliciesAsync(user.Id, CancellationToken.None)
+            .Returns([]);
+
+        _userRepositoryMock
+            .GetUserRoleNamesAsync(user.Id, CancellationToken.None)
+            .Returns([Roles.RegularUser]);
+
+        //Act
+        AuthenticateResult result = await _sut.AuthenticateAsync(dto, CancellationToken.None);
+
+        //Assert
+        result.IsAdmin.Should().BeFalse();
     }
 
     #endregion
 
-    #region Refresh tests
-
-    [Fact]
-    public async Task Refresh_ReturnsNewLoginResponseAndRevokeOldToken_WhenTokenIsValid()
-    {
-        // Arrange
-        const int userId = 42;
-        var (rawToken, storedToken) = BuildValidToken(userId);
-
-        _refreshTokenRepositoryMock
-            .GetByTokenHashAsync(Arg.Any<string>(), CancellationToken.None)
-            .Returns(storedToken);
-
-        _jwtProviderMock
-            .GenerateTokenAsync(userId, CancellationToken.None)
-            .Returns(("new_jwt", DateTimeOffset.UtcNow.AddSeconds(60)));
-
-        var request = new RefreshRequest { RefreshToken = rawToken };
-
-        // Act
-        var result = await _sut.RefreshAsync(request, CancellationToken.None);
-
-        // Assert
-        result.AccessToken.Should().Be("new_jwt");
-        result.RefreshToken.Should().NotBe(rawToken);
-        result.AccessTokenExpiresAt.Should().BeAfter(DateTimeOffset.UtcNow);
-        result.RefreshTokenExpiresAt.Should().BeAfter(DateTimeOffset.UtcNow);
-        await _refreshTokenRepositoryMock.Received(1).RevokeAndAddAsync(
-            storedToken,
-            Arg.Is<RefreshToken>(t => t.UserId == userId && !t.IsRevoked),
-            CancellationToken.None);
-    }
-
-    [Fact]
-    public async Task Refresh_ThrowsAuthenticationException_WhenTokenNotFound()
-    {
-        // Arrange
-        _refreshTokenRepositoryMock
-            .GetByTokenHashAsync(Arg.Any<string>(), CancellationToken.None)
-            .ReturnsNull();
-
-        var request = new RefreshRequest { RefreshToken = "nonexistent" };
-
-        // Act
-        var act = async () => await _sut.RefreshAsync(request, CancellationToken.None);
-
-        // Assert
-        await act.Should().ThrowAsync<AuthenticationException>();
-    }
-
-    [Fact]
-    public async Task Refresh_ThrowsAuthenticationException_WhenTokenIsExpired()
-    {
-        // Arrange
-        var (rawToken, storedToken) = BuildValidToken(expiresAt: DateTimeOffset.UtcNow.AddDays(-1));
-
-        _refreshTokenRepositoryMock
-            .GetByTokenHashAsync(Arg.Any<string>(), CancellationToken.None)
-            .Returns(storedToken);
-
-        var request = new RefreshRequest { RefreshToken = rawToken };
-
-        // Act
-        var act = async () => await _sut.RefreshAsync(request, CancellationToken.None);
-
-        // Assert
-        await act.Should().ThrowAsync<AuthenticationException>();
-    }
-
-    [Fact]
-    public async Task Refresh_RevokesAllUserTokensAndThrows_WhenRevokedTokenIsReused()
-    {
-        // Arrange
-        const int userId = 42;
-        var (rawToken, storedToken) = BuildValidToken(userId, isRevoked: true);
-
-        _refreshTokenRepositoryMock
-            .GetByTokenHashAsync(Arg.Any<string>(), CancellationToken.None)
-            .Returns(storedToken);
-
-        var request = new RefreshRequest { RefreshToken = rawToken };
-
-        // Act
-        var act = async () => await _sut.RefreshAsync(request, CancellationToken.None);
-
-        // Assert
-        await act.Should().ThrowAsync<AuthenticationException>();
-        await _refreshTokenRepositoryMock.Received(1).RevokeAllForUserAsync(userId, CancellationToken.None);
-        _loggerMock.Received(1).Log(
-            LogLevel.Warning,
-            Arg.Any<EventId>(),
-            Arg.Is<object>(o => o.ToString()!.Contains(userId.ToString())),
-            Arg.Any<Exception?>(),
-            Arg.Any<Func<object, Exception?, string>>());
-    }
-
-    [Fact]
-    public async Task Refresh_ShouldNotAddRefreshTokenIntoDatabase_WhenErrorGeneratingAuthenticationToken()
-    {
-        // Arrange
-        const int userId = 42;
-        var (rawToken, storedToken) = BuildValidToken(userId);
-
-        _refreshTokenRepositoryMock
-            .GetByTokenHashAsync(Arg.Any<string>(), CancellationToken.None)
-            .Returns(storedToken);
-
-        _jwtProviderMock
-            .GenerateTokenAsync(userId, CancellationToken.None)
-            .Throws(new DatabaseException(new Exception()));
-
-        var request = new RefreshRequest { RefreshToken = rawToken };
-
-        // Act
-        var act = async () => await _sut.RefreshAsync(request, CancellationToken.None);
-
-        // Assert
-        await act.Should().ThrowAsync<DatabaseException>();
-        await _refreshTokenRepositoryMock.DidNotReceive().RevokeAndAddAsync(Arg.Any<RefreshToken>(), Arg.Any<RefreshToken>(), CancellationToken.None);
-    }
-
-    private static (string RawToken, RefreshToken Entity) BuildValidToken(int userId = 42, bool isRevoked = false,
-        DateTimeOffset? expiresAt = null)
-    {
-        string token = Guid.NewGuid().ToString();
-        RefreshToken entity = new RefreshToken()
-        {
-            UserId = userId,
-            IsRevoked = isRevoked,
-            User = new User { UserName = "testuser", Email = "test@example.com", Password = "hash", Active = true },
-            ExpiresAt = expiresAt ?? DateTimeOffset.UtcNow.AddDays(7),
-            CreatedAt = DateTimeOffset.UtcNow,
-            TokenHash = EncryptionService.ComputeRefreshTokenHash(token)
-        };
-
-        return (token, entity);
-    }
-    
-    #endregion
-
-    
-    
-    
 }

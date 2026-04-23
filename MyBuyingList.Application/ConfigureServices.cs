@@ -1,6 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
-using System.Reflection;
-using FluentValidation;
+using Microsoft.Extensions.DependencyInjection;
 using MyBuyingList.Application.Features.Login.Services;
 using MyBuyingList.Application.Features.Users.Services;
 using MyBuyingList.Application.Common.Interfaces;
@@ -12,21 +10,10 @@ public static class ConfigureServices
 {
     public static IServiceCollection AddApplicationServices(this IServiceCollection services)
     {
-        services.AddValidators();
-        services.AddServices();
-
-        return services;
-    }
-
-    private static void AddValidators(this IServiceCollection services)
-    {
-        services.AddValidatorsFromAssembly(Assembly.GetExecutingAssembly());
-    }
-
-    private static void AddServices(this IServiceCollection services)
-    {
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddTransient<IPasswordEncryptionService, PasswordEncryptionService>();
+
+        return services;
     }
 }

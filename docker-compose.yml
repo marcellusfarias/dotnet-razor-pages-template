@@ -1,11 +1,13 @@
 version: '3.7'
 
 services:
-  api:
+  app:
     environment:
         - ASPNETCORE_URLS=https://+:443
     ports:
         - "8080:443"
+    volumes:
+      - data-protection-keys:/root/.aspnet/DataProtection-Keys
 
   seq:
     image: datalust/seq:2024.3
@@ -19,3 +21,4 @@ services:
 
 volumes:
   seq-data:
+  data-protection-keys:

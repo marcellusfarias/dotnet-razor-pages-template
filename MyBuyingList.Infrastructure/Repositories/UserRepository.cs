@@ -140,4 +140,19 @@ public class UserRepository : RepositoryBase<User>, IUserRepository
         catch (OperationCanceledException) { throw; }
         catch (Exception ex) { throw new DatabaseException(ex); }
     }
+
+    public async Task<List<string>> GetUserRoleNamesAsync(int userId, CancellationToken token)
+    {
+        try
+        {
+            return await _context.Set<User>()
+                .Where(u => u.Id == userId)
+                .SelectMany(u => u.UserRoles)
+                .Select(ur => ur.Role.Name)
+                .AsNoTracking()
+                .ToListAsync(token);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex) { throw new DatabaseException(ex); }
+    }
 }

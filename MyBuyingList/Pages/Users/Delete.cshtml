@@ -1,0 +1,14 @@
+@page "/users/{id:int}/delete"
+@model MyBuyingList.Web.Pages.Users.DeleteModel
+@{
+    ViewData["Title"] = "Delete User";
+}
+
+<h1>Delete User</h1>
+
+<p>Are you sure you want to delete user <b>@Model.TargetUser?.UserName</b>?</p>
+
+<form method="post">
+    <button type="submit">Delete</button>
+    <a href="/users">Cancel</a>
+</form>
