@@ -1,4 +1,6 @@
-﻿using Microsoft.AspNetCore.Hosting;
+﻿using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
@@ -6,13 +8,10 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using MyBuyingList.Application.Common.Interfaces;
-using MyBuyingList.Application.Features.Login.DTOs;
-using System.Net.Http.Json;
 using MyBuyingList.Domain.Entities;
 using MyBuyingList.Infrastructure;
-using MyBuyingList.Web.Tests.IntegrationTests.Common.Logging;
-using System.Net.Http.Headers;
 using MyBuyingList.Infrastructure.Persistence.Seeders;
+using MyBuyingList.Web.Tests.IntegrationTests.Common.Logging;
 using Testcontainers.PostgreSql;
 
 namespace MyBuyingList.Web.Tests.IntegrationTests.Common;
@@ -35,15 +34,15 @@ public class ResourceFactory : WebApplicationFactory<AssemblyMarker>, IAsyncLife
             .WithPassword("password")
             .WithDatabase("db")
             .WithHostname("localhost")
-            .WithPortBinding(_exposedPort, 5432)  
+            .WithPortBinding(_exposedPort, 5432)
             .Build();
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Test");
-        
-        var manager = new ConfigurationManager();
+
+        ConfigurationManager manager = new();
         manager
             .AddJsonFile(Path.Combine(Directory.GetCurrentDirectory(), "appsettings.IntegrationTests.json"), optional: false)
             .Build();
@@ -66,35 +65,29 @@ public class ResourceFactory : WebApplicationFactory<AssemblyMarker>, IAsyncLife
                     .UseSnakeCaseNamingConvention();
             });
             services.AddScoped<ApplicationDbContext>();
-        });
 
+            // TestServer uses http://localhost — Secure cookies won't be sent over plain HTTP.
+            // Override to SameAsRequest so the CookieContainer sends auth cookies in tests.
+            services.PostConfigureAll<CookieAuthenticationOptions>(options =>
+            {
+                options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+            });
+        });
     }
 
     public async ValueTask InitializeAsync()
     {
         await _dbContainer.StartAsync();
-        
-        // Seeds the database with an admin user, since this function is ran before 
-        // BaseIntegrationTests.InitializeAsync()
+
         await SeedAdminAsync();
         await SeedIntegrationAdminAsync();
-        
-        // Creates client and adds JWT so it doesnt need to authenticate
-        // on every test.
-        var client = CreateClient();
 
-        LoginRequest loginDto = new()
+        HttpClient = CreateClient(new WebApplicationFactoryClientOptions
         {
-            Username = Utils.IntegrationTestAdminUsername,
-            Password = Utils.IntegrationTestAdminPassword
-        };
+            AllowAutoRedirect = false
+        });
 
-        var response = await client.PostAsync("api/auth", Utils.GetJsonContentFromObject(loginDto));
-        var loginResponse = await response.Content.ReadFromJsonAsync<LoginResponse>();
-
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", loginResponse!.AccessToken);
-
-        HttpClient = client;
+        await Utils.LoginAsync(HttpClient, Utils.IntegrationTestAdminUsername, Utils.IntegrationTestAdminPassword);
     }
 
     public new async Task DisposeAsync()
@@ -104,30 +97,59 @@ public class ResourceFactory : WebApplicationFactory<AssemblyMarker>, IAsyncLife
 
     public async Task ResetDatabaseAsync()
     {
-        using var scope = Services.CreateScope();
-        var dbService = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        using IServiceScope scope = Services.CreateScope();
+        ApplicationDbContext db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
-        await dbService.Database.EnsureDeletedAsync();
-        await dbService.Database.EnsureCreatedAsync();
+        await db.Database.EnsureDeletedAsync();
+        await db.Database.EnsureCreatedAsync();
 
         await SeedAdminAsync();
         await SeedIntegrationAdminAsync();
     }
 
+    public async Task<int> InsertTestUserAsync()
+    {
+        using IServiceScope scope = Services.CreateScope();
+        ApplicationDbContext db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        IPasswordEncryptionService passwordService = scope.ServiceProvider.GetRequiredService<IPasswordEncryptionService>();
+
+        User user = new()
+        {
+            UserName = Utils.TestUserUsername,
+            Email = Utils.TestUserEmail,
+            Password = passwordService.HashPassword(Utils.TestUserPassword),
+            Active = true
+        };
+
+        db.Set<User>().Add(user);
+        await db.SaveChangesAsync();
+        return user.Id;
+    }
+
+    public async Task<HttpClient> CreateAuthenticatedClientAsync(string username, string password)
+    {
+        HttpClient client = CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false
+        });
+        await Utils.LoginAsync(client, username, password);
+        return client;
+    }
+
     private async Task SeedAdminAsync()
     {
-        using var scope = Services.CreateScope();
-        var seeder = scope.ServiceProvider.GetRequiredService<AdminUserSeeder>();
+        using IServiceScope scope = Services.CreateScope();
+        AdminUserSeeder seeder = scope.ServiceProvider.GetRequiredService<AdminUserSeeder>();
         await seeder.SeedAsync();
     }
     
     private async Task SeedIntegrationAdminAsync()
     {
-        using var scope = Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        var passwordService = scope.ServiceProvider.GetRequiredService<IPasswordEncryptionService>();
+        using IServiceScope scope = Services.CreateScope();
+        ApplicationDbContext db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        IPasswordEncryptionService passwordService = scope.ServiceProvider.GetRequiredService<IPasswordEncryptionService>();
 
-        var user = new User
+        User user = new()
         {
             UserName = Utils.IntegrationTestAdminUsername,
             Email = "integration_admin@test.local",
@@ -138,8 +160,7 @@ public class ResourceFactory : WebApplicationFactory<AssemblyMarker>, IAsyncLife
         db.Set<User>().Add(user);
         await db.SaveChangesAsync();
 
-        // Assign Administrator role (Id = 1) to the newly created user
-        var insertedUser = await db.Set<User>()
+        User insertedUser = await db.Set<User>()
             .SingleAsync(u => u.UserName == Utils.IntegrationTestAdminUsername);
 
         db.Set<UserRole>().Add(new UserRole { UserId = insertedUser.Id, RoleId = 1 });

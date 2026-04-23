@@ -48,4 +48,12 @@ public interface IUserRepository : IRepository<User>
     /// <param name="userId">The user's unique identifier.</param>
     /// <param name="token">Cancellation token.</param>
     Task ResetLockoutAsync(int userId, CancellationToken token);
+
+    /// <summary>
+    /// Retrieves the names of all roles assigned to a user.
+    /// </summary>
+    /// <param name="userId">The user's unique identifier.</param>
+    /// <param name="token">Cancellation token.</param>
+    /// <returns>A list of role names assigned to the user.</returns>
+    Task<List<string>> GetUserRoleNamesAsync(int userId, CancellationToken token);
 }

@@ -3,7 +3,7 @@ version: '3.7'
 # This is a production-ready docker compose file.
 # It's intended to be used in Docker Swarm mode.
 services:
-  api:
+  app:
     image: ghcr.io/marcellusfarias/dotnet-razor-pages-template:latest
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
@@ -12,7 +12,6 @@ services:
     volumes:
       - /etc/letsencrypt/live/${APPLICATION_DOMAIN}:/https:ro
     secrets:
-      - JwtSettings__SigningKey
       - ConnectionStrings__DefaultConnection
       - AdminSettings__Password
       - AdminSettings__Email
@@ -46,8 +45,6 @@ services:
         max_attempts: 3
 
 secrets:
-  JwtSettings__SigningKey:
-    external: true
   ConnectionStrings__DefaultConnection:
     external: true
   AdminSettings__Password:

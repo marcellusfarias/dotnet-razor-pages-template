@@ -1,15 +1,19 @@
-﻿namespace MyBuyingList.Application.Features.Users.DTOs;
+﻿using System.ComponentModel.DataAnnotations;
+using MyBuyingList.Application.Common.Validations;
+using MyBuyingList.Domain.Constants;
 
-public record CreateUserRequest
+namespace MyBuyingList.Application.Features.Users.DTOs;
+
+public class CreateUserRequest
 {
-    public string UserName { get; init; }
-    public string Email { get; init; }
-    public string Password { get; init; }
-
-    public CreateUserRequest(string username, string email, string password)
-    {
-        UserName = username.ToLower();
-        Email = email.ToLower();
-        Password = password;
-    }
+    [StringLength(FieldLengths.USER_USERNAME_MAX_LENGTH, MinimumLength = FieldLengths.USER_USERNAME_MIN_LENGTH)]
+    [ValidUsername]
+    public required string UserName { get; init; }
+    
+    [StringLength(FieldLengths.USER_EMAIL_MAX_LENGTH)] 
+    [ValidEmail]
+    public required string Email { get; init; }
+    
+    [ValidPassword]
+    public required string Password { get; init; }
 }

@@ -1,4 +1,3 @@
-using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using MyBuyingList.Web.Services;
@@ -9,15 +8,15 @@ public class CurrentUserServiceTests
 {
     private static IHttpContextAccessor BuildAccessor(string? nameIdValue)
     {
-        var claims = nameIdValue is null
+        Claim[] claims = nameIdValue is null
             ? []
-            : new[] { new Claim(JwtRegisteredClaimNames.NameId, nameIdValue) };
+            : [new Claim(ClaimTypes.NameIdentifier, nameIdValue)];
 
-        var identity = new ClaimsIdentity(claims, "Test");
-        var principal = new ClaimsPrincipal(identity);
-        var context = new DefaultHttpContext { User = principal };
+        ClaimsIdentity identity = new(claims, "Test");
+        ClaimsPrincipal principal = new(identity);
+        DefaultHttpContext context = new() { User = principal };
 
-        var accessor = Substitute.For<IHttpContextAccessor>();
+        IHttpContextAccessor accessor = Substitute.For<IHttpContextAccessor>();
         accessor.HttpContext.Returns(context);
         return accessor;
     }
@@ -25,8 +24,8 @@ public class CurrentUserServiceTests
     [Fact]
     public void UserId_WithValidClaim_ReturnsUserId()
     {
-        var accessor = BuildAccessor("42");
-        var sut = new CurrentUserService(accessor);
+        IHttpContextAccessor accessor = BuildAccessor("42");
+        CurrentUserService sut = new(accessor);
 
         sut.UserId.Should().Be(42);
     }
@@ -34,10 +33,10 @@ public class CurrentUserServiceTests
     [Fact]
     public void UserId_WithMissingClaim_ThrowsInvalidOperationException()
     {
-        var accessor = BuildAccessor(null);
-        var sut = new CurrentUserService(accessor);
+        IHttpContextAccessor accessor = BuildAccessor(null);
+        CurrentUserService sut = new(accessor);
 
-        var act = () => sut.UserId;
+        Action act = () => _ = sut.UserId;
 
         act.Should().Throw<InvalidOperationException>();
     }
@@ -45,10 +44,10 @@ public class CurrentUserServiceTests
     [Fact]
     public void UserId_WithNonNumericClaim_ThrowsInvalidOperationException()
     {
-        var accessor = BuildAccessor("not-a-number");
-        var sut = new CurrentUserService(accessor);
+        IHttpContextAccessor accessor = BuildAccessor("not-a-number");
+        CurrentUserService sut = new(accessor);
 
-        var act = () => sut.UserId;
+        Action act = () => _ = sut.UserId;
 
         act.Should().Throw<InvalidOperationException>();
     }
@@ -56,11 +55,11 @@ public class CurrentUserServiceTests
     [Fact]
     public void UserId_WithNullHttpContext_ThrowsInvalidOperationException()
     {
-        var accessor = Substitute.For<IHttpContextAccessor>();
+        IHttpContextAccessor accessor = Substitute.For<IHttpContextAccessor>();
         accessor.HttpContext.Returns((HttpContext?)null);
-        var sut = new CurrentUserService(accessor);
+        CurrentUserService sut = new(accessor);
 
-        var act = () => sut.UserId;
+        Action act = () => _ = sut.UserId;
 
         act.Should().Throw<InvalidOperationException>();
     }

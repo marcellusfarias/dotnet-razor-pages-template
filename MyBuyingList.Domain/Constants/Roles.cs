@@ -4,8 +4,8 @@ namespace MyBuyingList.Domain.Constants;
 
 public static class Roles
 {
-    private const string Administrator = "Administrator";
-    private const string RegularUser = "RegularUser";
+    public const string Administrator = "Administrator";
+    public const string RegularUser = "RegularUser";
     
     public static List<Role> GetValues() =>
     [

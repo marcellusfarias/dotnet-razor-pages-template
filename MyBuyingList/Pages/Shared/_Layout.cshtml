@@ -1,0 +1,39 @@
+@using System.Security.Claims
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] - MyBuyingList</title>
+</head>
+<body>
+    <header>
+        <nav>
+            @if (User.Identity?.IsAuthenticated == true)
+            {
+                <span>Logged in as @User.Claims.FirstOrDefault(c => c.Type == ClaimTypes.Name)?.Value</span>
+                <span> | </span>
+                <a href="/users">Users</a>
+                <span> | </span>
+                <form method="post" asp-page="/Logout" style="display:inline">
+                    @Html.AntiForgeryToken()
+                    <button type="submit">Logout</button>
+                </form>
+            }
+        </nav>
+    </header>
+    <main>
+        @{
+            var pageModel = ViewContext.ViewData.Model as BasePageModel;
+        }
+        @if (pageModel?.ErrorTitle is not null)
+        {
+            <div>
+                <strong>@pageModel.ErrorTitle</strong>
+                <p>@pageModel.ErrorDetails</p>
+            </div>
+        }
+        @RenderBody()
+    </main>
+</body>
+</html>

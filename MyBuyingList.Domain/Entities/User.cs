@@ -14,5 +14,4 @@ public sealed class User : BaseEntity
     public DateTime? LockoutEnd { get; set; }
 
     public ICollection<UserRole> UserRoles { get; set; } = [];
-    public ICollection<RefreshToken> RefreshTokens { get; set; } = [];
 }

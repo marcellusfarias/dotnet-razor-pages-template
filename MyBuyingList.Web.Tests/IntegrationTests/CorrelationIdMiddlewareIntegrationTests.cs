@@ -1,5 +1,6 @@
 using MyBuyingList.Web.Middlewares.CorrelationId;
 using MyBuyingList.Web.Tests.IntegrationTests.Common;
+using MyBuyingList.Web.Tests.IntegrationTests.Common.Logging;
 using System.Net;
 
 namespace MyBuyingList.Web.Tests.IntegrationTests;
@@ -21,7 +22,7 @@ public class CorrelationIdMiddlewareIntegrationTests : BaseIntegrationTest
     public async Task Request_WithoutCorrelationIdHeader_ResponseContainsGeneratedCorrelationId()
     {
         // Act
-        var response = await _client.GetAsync("api/users", _cancellationToken);
+        HttpResponseMessage response = await _client.GetAsync(Constants.AddressUsersPage, _cancellationToken);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -33,14 +34,13 @@ public class CorrelationIdMiddlewareIntegrationTests : BaseIntegrationTest
     public async Task Request_WithCorrelationIdHeader_ResponseEchoesTheSameValue()
     {
         // Arrange
-        var correlationId = "test-correlation-abc123";
+        string correlationId = "test-correlation-abc123";
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, "api/users");
+        using HttpRequestMessage request = new(HttpMethod.Get, Constants.AddressUsersPage);
         request.Headers.Add(CorrelationIdMiddleware.HeaderName, correlationId);
-        request.Headers.Authorization = _client.DefaultRequestHeaders.Authorization;
 
         // Act
-        var response = await _client.SendAsync(request, _cancellationToken);
+        HttpResponseMessage response = await _client.SendAsync(request, _cancellationToken);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -51,12 +51,11 @@ public class CorrelationIdMiddlewareIntegrationTests : BaseIntegrationTest
     public async Task Request_WithEmptyCorrelationIdHeader_ResponseContainsGeneratedId()
     {
         // Arrange
-        using var request = new HttpRequestMessage(HttpMethod.Get, "api/users");
+        using HttpRequestMessage request = new(HttpMethod.Get, Constants.AddressUsersPage);
         request.Headers.TryAddWithoutValidation(CorrelationIdMiddleware.HeaderName, string.Empty);
-        request.Headers.Authorization = _client.DefaultRequestHeaders.Authorization;
 
         // Act
-        var response = await _client.SendAsync(request, _cancellationToken);
+        HttpResponseMessage response = await _client.SendAsync(request, _cancellationToken);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -70,12 +69,11 @@ public class CorrelationIdMiddlewareIntegrationTests : BaseIntegrationTest
     public async Task Request_WithInvalidCorrelationIdHeader_ResponseContainsGeneratedId(string invalidCorrelationId)
     {
         // Arrange
-        using var request = new HttpRequestMessage(HttpMethod.Get, "api/users");
+        using HttpRequestMessage request = new(HttpMethod.Get, Constants.AddressUsersPage);
         request.Headers.TryAddWithoutValidation(CorrelationIdMiddleware.HeaderName, invalidCorrelationId);
-        request.Headers.Authorization = _client.DefaultRequestHeaders.Authorization;
 
         // Act
-        var response = await _client.SendAsync(request, _cancellationToken);
+        HttpResponseMessage response = await _client.SendAsync(request, _cancellationToken);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -86,22 +84,21 @@ public class CorrelationIdMiddlewareIntegrationTests : BaseIntegrationTest
     public async Task Request_WithCorrelationIdHeader_CorrelationIdAppearsInLogs()
     {
         // Arrange
-        var correlationId = Guid.NewGuid().ToString();
+        string correlationId = Guid.NewGuid().ToString();
         _factory.LogCollector.Clear();
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, "api/users");
+        using HttpRequestMessage request = new(HttpMethod.Get, Constants.AddressUsersPage);
         request.Headers.Add(CorrelationIdMiddleware.HeaderName, correlationId);
-        request.Headers.Authorization = _client.DefaultRequestHeaders.Authorization;
 
         // Act
         await _client.SendAsync(request, _cancellationToken);
 
         // Assert
-        var entries = _factory.LogCollector.Entries;
+        IReadOnlyList<FakeLogEntry> entries = _factory.LogCollector.Entries;
         entries.Count.Should().BeGreaterThan(0);
-        entries.Should().AllSatisfy(e => e.Scopes.Any(s => 
-            s.Key == "CorrelationId" 
-            && s.Value != null 
+        entries.Should().AllSatisfy(e => e.Scopes.Any(s =>
+            s.Key == "CorrelationId"
+            && s.Value != null
             && s.Value.ToString() == correlationId));
     }
 }

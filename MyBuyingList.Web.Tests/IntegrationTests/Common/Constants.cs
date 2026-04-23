@@ -3,8 +3,9 @@
 public static class Constants
 {
     public const string ResourceFactoryCollection = "ResourceFactoryCollection";
-    public const string BaseAddressUserEndpoint = "api/users/";
-    public const string AddressAuthenticationEndpoint = "api/auth";
-    public const string AddressRefreshTokenEndpoint = "api/auth/refresh";
-    public const string AddressHealthEndpoint = "health";
+    public const string AddressLoginPage = "/login";
+    public const string AddressLogoutPage = "/logout";
+    public const string AddressUsersPage = "/users";
+    public const string AddressUsersCreatePage = "/users/create";
+    public const string AddressHealthEndpoint = "/health";
 }

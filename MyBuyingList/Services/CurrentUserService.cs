@@ -1,4 +1,3 @@
-using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using MyBuyingList.Application.Common.Interfaces;
 
@@ -17,8 +16,8 @@ public class CurrentUserService : ICurrentUserService
     {
         get
         {
-            var value = _httpContextAccessor.HttpContext?.User.FindFirstValue(JwtRegisteredClaimNames.NameId);
-            if (value is null || !int.TryParse(value, out var userId))
+            string? value = _httpContextAccessor.HttpContext?.User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (value is null || !int.TryParse(value, out int userId))
             {
                 throw new InvalidOperationException("User ID claim is missing or invalid.");
             }

@@ -1,5 +1,3 @@
-using FluentValidation;
-using FluentValidation.Resources;
 using MyBuyingList.Web;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -27,10 +25,5 @@ builder.Services.AddServices(builder.Configuration);
 var app = builder.Build();
 await app.StartApplication();
 app.Logger.LogInformation("Running app...");
-
-ValidatorOptions.Global.LanguageManager = new LanguageManager()
-{
-    Culture = System.Globalization.CultureInfo.GetCultureInfo("en"),
-};
 
 await app.RunAsync();

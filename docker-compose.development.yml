@@ -1,7 +1,7 @@
 version: '3.7'
 
 services:
-  api:
+  app:
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_Kestrel__Certificates__Default__Path=/etc/ssl/certs/aspnetcore-localhost-1FAA1A3C85393F717419416A10C6E8E1457C75F8.pfx

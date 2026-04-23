@@ -6,8 +6,7 @@
 		<ProjectGuid>837e4160-e6e3-41b2-b73b-cf2e9bf83026</ProjectGuid>
 		<DockerLaunchAction>LaunchBrowser</DockerLaunchAction>
 		<DockerServiceUrl>{Scheme}://localhost:{ServicePort}</DockerServiceUrl>
-		<DockerServiceName>mybuyinglist.web</DockerServiceName>
-		<DockerComposeProjectName>shared-buying-list</DockerComposeProjectName>
+		<DockerComposeProjectName>dotnet-razor-pages-template</DockerComposeProjectName>
 	</PropertyGroup>
 	<!--https://github.com/microsoft/DockerTools/issues/361-->
 	<PropertyGroup Condition="'$(Configuration)' == 'Debug'">
