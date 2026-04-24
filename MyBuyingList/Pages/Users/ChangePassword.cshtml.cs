@@ -21,9 +21,14 @@ public class ChangePasswordInputModel
 [HasPermission(Policies.UserUpdate)]
 public class ChangePasswordModel(IUserService userService) : BasePageModel
 {
-    [BindProperty]
-    public ChangePasswordInputModel Input { get; set; } = null!;
-    
+    [BindProperty] public ChangePasswordInputModel Input { get; set; } = null!;
+
+    public async Task<IActionResult> OnGetAsync(int id, CancellationToken cancellationToken)
+    {
+        await userService.GetUserAsync(id, cancellationToken); // Will throw if not found
+        return Page();
+    }
+
     public async Task<IActionResult> OnPostAsync(int id, CancellationToken cancellationToken)
     {
         await userService.ChangeUserPasswordAsync(id, Input.OldPassword, Input.NewPassword, cancellationToken);
