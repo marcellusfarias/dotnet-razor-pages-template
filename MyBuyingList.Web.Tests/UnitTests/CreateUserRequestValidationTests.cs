@@ -20,7 +20,7 @@ public class CreateUserRequestValidationTests
     }
 
     private static string UsernameLengthError =>
-        $"The field Username must be a string with a minimum length of {FieldLengths.USER_USERNAME_MIN_LENGTH} and a maximum length of {FieldLengths.USER_USERNAME_MAX_LENGTH}.";
+        $"The field UserName must be a string with a minimum length of {FieldLengths.USER_USERNAME_MIN_LENGTH} and a maximum length of {FieldLengths.USER_USERNAME_MAX_LENGTH}.";
 
     private static string EmailLengthError =>
         $"The field Email must be a string with a maximum length of {FieldLengths.USER_EMAIL_MAX_LENGTH}.";
@@ -86,7 +86,7 @@ public class CreateUserRequestValidationTests
         yield return
         [
             CreateDto(ValidUsername, "", ValidPassword),
-            EmailLengthError
+            ValidationMessages.InvalidEmail
         ];
 
         yield return

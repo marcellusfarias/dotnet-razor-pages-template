@@ -31,7 +31,6 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "docs", "docs", "{E11C2A77-7EAA-4FFC-AF0A-48135E899AA8}"
 	ProjectSection(SolutionItems) = preProject
 		docs\BACKLOG.md = docs\BACKLOG.md
-		docs\RESEARCH.md = docs\RESEARCH.md
 		README.md = README.md
 		docs\CODING-PATTERNS.md = docs\CODING-PATTERNS.md
 	EndProjectSection
