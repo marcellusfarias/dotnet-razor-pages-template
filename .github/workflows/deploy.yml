@@ -1,0 +1,105 @@
+name: Build and Deploy
+
+on:
+  push:
+    tags:
+      - 'v*'  # Triggers on tags like v1.0.0, v2.1.3, etc.
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Extract tag name
+      id: tag
+      run: echo "TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+    
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./MyBuyingList/Dockerfile
+        push: true
+        tags: |
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.TAG }}
+
+    - name: Copy docker-compose files to VPS
+      uses: appleboy/scp-action@v1.0.0
+      with:
+        host: ${{ secrets.VPS_HOST }}
+        username: ${{ secrets.VPS_USER }}
+        key: ${{ secrets.VPS_SSH_KEY }}
+        source: "docker-compose.yml,docker-compose.production.yml"  # Comma-separated files
+        target: "~/app"
+        strip_components: 0  # 0 = do not strip path components; files are already in the repo root
+    
+    - name: Deploy to VPS
+      uses: appleboy/ssh-action@v1.0.3
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_ACTOR: ${{ github.actor }}
+        APPLICATION_DOMAIN: ${{ secrets.APPLICATION_DOMAIN }}
+      with:
+        host: ${{ secrets.VPS_HOST }}
+        username: ${{ secrets.VPS_USER }}
+        key: ${{ secrets.VPS_SSH_KEY }}
+        envs: GITHUB_TOKEN,GITHUB_ACTOR,APPLICATION_DOMAIN
+        script: |
+          cd ~/app
+
+          echo "Joined ~/app folder"
+          
+          # Login to GitHub Container Registry
+          docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin <<< "$GITHUB_TOKEN"
+          
+          echo "Logged in to docker registry, deploying services"
+          
+          # Pull latest image explicitly so we know it's fresh
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          
+          # cut -d'@' -f2 splits the string on @ and takes the second part
+          NEW_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest | cut -d'@' -f2)
+          echo "Expected digest: $NEW_DIGEST"
+          
+          # Wait for service to stabilize — exits non-zero if rolled back or failed
+          if ! docker stack deploy -c docker-compose.yml -c docker-compose.production.yml --detach=false myapp; then
+            echo "❌ Service update failed or was rolled back"
+            echo "--- Service logs ---"
+            docker service logs -t --tail 50 myapp_api
+            exit 1
+          fi
+          
+          # Even if deploy exited 0, check what image is actually running
+          # (swarm may have silently rolled back)
+          RUNNING_DIGEST=$(docker service inspect myapp_api --format='{{.Spec.TaskTemplate.ContainerSpec.Image}}' | cut -d'@' -f2)
+          echo "Running image: $RUNNING_DIGEST"
+          
+          if [[ "$RUNNING_DIGEST" != "$NEW_DIGEST" ]]; then
+            echo "❌ Rollback detected — running image does not match expected"
+            echo "--- Service logs ---"
+            docker service logs -t --tail 50 myapp_api
+            exit 1
+          fi
+        
+          echo "✅ 'docker stack deploy' completed successfully"
+          
+          # Cleanup
+          docker image prune -af
