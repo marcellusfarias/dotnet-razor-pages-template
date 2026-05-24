@@ -253,12 +253,27 @@ public class UsersPageIntegrationTests : BaseIntegrationTest
     [Fact]
     public async Task ChangePassword_RedirectsToError_WhenUserIdDoesNotExist()
     {
-        // Act — POST change-password for a non-existent user; service calls GetAsync → ResourceNotFoundException
-        HttpResponseMessage response = await PostFormAsync(_client, "/users/99999/change-password", new()
+        // Arrange — get a valid antiforgery token from a page that actually renders.
+        // PostFormAsync cannot be used here because its GET to /users/99999/change-password
+        // throws ResourceNotFoundException, causing the client to follow the redirect to /error,
+        // where no antiforgery token is present — making the subsequent POST return 400.
+        int adminUserId = 2; // integration_admin is seeded as the second user
+        string html = await (await _client.GetAsync($"/users/{adminUserId}/change-password", _cancellationToken))
+            .Content.ReadAsStringAsync(_cancellationToken);
+        string token = Utils.ExtractAntiForgeryToken(html);
+
+        Dictionary<string, string> form = new()
         {
             ["Input.OldPassword"] = "OldValid1!",
-            ["Input.NewPassword"] = "NewValid1!"
-        }, _cancellationToken);
+            ["Input.NewPassword"] = "NewValid1!",
+            ["__RequestVerificationToken"] = token
+        };
+
+        // Act — POST to a non-existent user; service throws ResourceNotFoundException → /error
+        HttpResponseMessage response = await _client.PostAsync(
+            "/users/99999/change-password",
+            new FormUrlEncodedContent(form),
+            _cancellationToken);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Redirect);
